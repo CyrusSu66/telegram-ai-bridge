@@ -1,5 +1,5 @@
 {
-    "bot_token": "8306239044:AAF9koVWk04n6HerHTPSh9UTzHRedVbCAqM",
+    "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
     "agent_app_name": "Antigravity",
     "response_file": "response.txt"
 }

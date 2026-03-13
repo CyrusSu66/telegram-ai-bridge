@@ -1,6 +1,15 @@
 # Telegram Bot Bridge 🌉
 
+> [!IMPORTANT]
+> **環境限制**：本專案專為 **macOS** 環境設計。
+> 如果您使用的是 **Windows**，請參閱本專案邏輯並自行請 AI Agent (如 Antigravity 或 Claude) 協助開發 Windows 版本的替代方案（如使用 PowerShell 或 AutoHotKey）。
+
 這個專案實現了一個「Telegram 任意門」，讓你可以透過 Telegram Bot 遠端控制你的 Antigravity Agent。
+
+### 🍎 為何僅支援 macOS？
+本專案核心依賴 macOS 獨有的 **AppleScript (`osascript`)** 功能，主要用於：
+1.  **視窗自動聚焦**：自動將系統焦點切換至 Antigravity 視窗。
+2.  **系統指令輸入**：模擬 `Cmd+V` 貼上操作與 `Enter` 鍵，以確保中文輸入不會產生亂碼。
 
 ## 🌟 功能特色
 
@@ -9,6 +18,10 @@
     *   **電腦 -> 手機**：Agent 處理完畢後將結果寫入檔案，Bot 會自動偵測並回傳到 Telegram。
 *   **中文支援**：採用剪貼簿輸入模式，完美支援中文與特殊符號。
 *   **安全隔離**：Bot Token 與設定獨立於 `config.json`，方便管理與備份。
+
+> [!NOTE]
+> **使用前提**：Antigravity 的**對話輸入框**必須保持在焦點狀態（即游標停留在文字輸入框內）。
+> **原因**：本程式透過 AppleScript 將 App 視窗拉到前景後，使用 `Cmd+V` 直接模擬鍵盤貼上操作，相當於你「手動點擊輸入框後按 Ctrl+V」。由於程式本身無法感知視窗內部的 UI 元素（不知道輸入框在哪個座標），它只能單純地將剪貼簿內容貼到「當前焦點所在元素」，因此需要使用者在傳指令前，確認焦點已在輸入框上。
 
 ## 🚀 快速開始
 
@@ -47,18 +60,21 @@ python3 bot.py
 ## 📱 使用說明
 
 1.  在 Telegram 找到你的 Bot。
-2.  傳送指令，格式為：`/ag <任何指令>`
-    *   例如：`/ag 幫我檢查 dice-soul 的代碼`
-    *   例如：`/ag 今天天氣如何？`
+2.  **直接傳送指令**即可。
+    *   例如：`幫我檢查 dice-soul 的代碼`
+    *   例如：`今天天氣如何？`
 3.  **注意**：當 Bot 接收到指令時，它會**強制將電腦視窗切換到 Antigravity** 並進行貼上操作。請確保電腦處於解鎖狀態且 Antigravity 已開啟。
-4.  Bot 現在只會處理以 `/ag` 開頭的訊息，避免誤觸。
+4.  目前 Bot 會處理所有接收到的文字訊息。
 
 ## ⚠️ 常見問題
 
 *   **無法輸入 / 亂碼？**
     *   本程式使用 `pyperclip` 與 `Cmd+V` 貼上，請確保你的輸入法狀態不是處於特殊模式。
 *   **權限錯誤？**
-    *   MacOS 需要授予 Python (或 Terminal) **輔助使用 (Accessibility)** 與 **System Events** 的權限，才能控制視窗與鍵盤。
+    *   MacOS 需要授予 Python (或 Terminal) **輔助使用 (Accessibility)** 與 **System Events** 的權限，才能控制視窗與鍵盤。具體路徑：`系統設定 -> 隱私權與安全性 -> 輔助使用`。
+
+*   **支援平台？**
+    *   本專案目前僅支援 **macOS**，因為指令輸入依賴於 `osascript` 與 macOS 系統 Events。
 
 ---
 *Created by Antigravity Agent*
