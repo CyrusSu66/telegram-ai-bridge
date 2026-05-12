@@ -1,29 +1,39 @@
 # Telegram Bot Bridge 🌉
 
-> [!IMPORTANT]
-> **環境限制**：本專案專為 **macOS** 環境設計。
-> 如果您使用的是 **Windows**，請參閱本專案邏輯並自行請 AI Agent (如 Antigravity 或 Claude) 協助開發 Windows 版本的替代方案（如使用 PowerShell 或 AutoHotKey）。
+這個專案實現了一個「Telegram 任意門」，讓你可以透過 Telegram Bot 遠端無縫控制你的 AI Agent (Antigravity)。
 
-這個專案實現了一個「Telegram 任意門」，讓你可以透過 Telegram Bot 遠端控制你的 Antigravity Agent。
+## 🌿 分支架構說明
 
-### 🍎 為何僅支援 macOS？
-本專案核心依賴 macOS 獨有的 **AppleScript (`osascript`)** 功能，主要用於：
-1.  **視窗自動聚焦**：自動將系統焦點切換至 Antigravity 視窗。
-2.  **系統指令輸入**：模擬 `Cmd+V` 貼上操作與 `Enter` 鍵，以確保中文輸入不會產生亂碼。
+本專案目前有兩個主要分支，採用完全不同的底層控制技術：
 
-## 🌟 功能特色
+### 1. `main` 分支（UI 模擬自動化）
+*   **控制原理**：依賴 macOS 的 **AppleScript (`osascript`)** 強制將視窗喚醒至前景，並透過 `pyperclip` 模擬剪貼簿 `Cmd+V` 貼上操作。
+*   **優點**：架構簡單，泛用性強。
+*   **缺點**：
+    *   **僅支援 macOS**。
+    *   容易被干擾（執行時電腦不能在做其他事，否則會搶走焦點）。
+    *   必須確保游標已經停在文字輸入框。
 
-*   **雙向溝通**：
-    *   **手機 -> 電腦**：在 Telegram 傳送指令，Bot 會模擬剪貼簿操作，迅速將指令貼到 Antigravity 輸入框。
-    *   **電腦 -> 手機**：Agent 處理完畢後將結果寫入檔案，Bot 會自動偵測並回傳到 Telegram。
-*   **中文支援**：採用剪貼簿輸入模式，完美支援中文與特殊符號。
-*   **安全隔離**：Bot Token 與設定獨立於 `config.json`，方便管理與備份。
+### 2. `feature/cdp-integration` 分支（本分支：CDP 底層通訊）✨
+*   **控制原理**：透過 **Chrome DevTools Protocol (CDP)** 的 WebSocket 介面，直接與底層的 Chromium / Electron 核心對話。
+*   **優點**：
+    *   **無干擾背景執行**：即使視窗被遮擋、最小化，指令依然能精準送達，完全不影響你當前的工作。
+    *   **精準輸入**：直接針對 DOM 節點 (`.cursor-text`) 注入文字與觸發鍵盤事件，不依賴滑鼠游標。
+    *   **智慧冷啟動**：支援自動偵測與背景喚醒 Antigravity 服務。
+    *   **多專案支援**：可透過 Telegram 指令切換並監控不同的專案視窗。
+    *   **精準回覆攔截**：能自動過濾 AI 的思考日誌 (Thought logs)，精準回傳最終的正式解答。
 
-> [!NOTE]
-> **使用前提**：Antigravity 的**對話輸入框**必須保持在焦點狀態（即游標停留在文字輸入框內）。
-> **原因**：本程式透過 AppleScript 將 App 視窗拉到前景後，使用 `Cmd+V` 直接模擬鍵盤貼上操作，相當於你「手動點擊輸入框後按 Ctrl+V」。由於程式本身無法感知視窗內部的 UI 元素（不知道輸入框在哪個座標），它只能單純地將剪貼簿內容貼到「當前焦點所在元素」，因此需要使用者在傳指令前，確認焦點已在輸入框上。
+---
 
-## 🚀 快速開始
+## 🌟 CDP 分支功能特色
+
+*   **自動狀態同步**：啟動 `tgbot` 時自動推播連線狀態與可用的視窗清單。
+*   **多視窗管理**：
+    *   `/list`：列出所有目前開啟的專案視窗。
+    *   `/switch <編號>`：切換目前要下達指令的目標視窗。
+*   **自動綁定**：預設會自動鎖定你最新開啟或最後操作的 `[0]` 號活躍視窗。
+
+## 🚀 快速開始 (CDP 版本)
 
 ### 1. 安裝依賴
 
@@ -45,36 +55,24 @@ pip install -r requirements.txt
 }
 ```
 
-*   `bot_token`: 從 @BotFather 取得的 Token。
-*   `agent_app_name`: 你的 Agent 應用程式名稱（預設為 Antigravity）。
-*   `response_file`: Agent 回應寫入的目標檔案。
-
 ### 3. 啟動 Bot
 
-在終端機執行：
+在終端機執行（或使用 alias）：
 
 ```bash
 python3 bot.py
+# 或
+tgbot
 ```
 
-## 📱 使用說明
-
-1.  在 Telegram 找到你的 Bot。
-2.  **直接傳送指令**即可。
-    *   例如：`幫我檢查 dice-soul 的代碼`
-    *   例如：`今天天氣如何？`
-3.  **注意**：當 Bot 接收到指令時，它會**強制將電腦視窗切換到 Antigravity** 並進行貼上操作。請確保電腦處於解鎖狀態且 Antigravity 已開啟。
-4.  目前 Bot 會處理所有接收到的文字訊息。
+啟動後，只要 Antigravity 處於開啟狀態，你的 Telegram 就會立刻收到連線成功與視窗鎖定通知！
 
 ## ⚠️ 常見問題
 
-*   **無法輸入 / 亂碼？**
-    *   本程式使用 `pyperclip` 與 `Cmd+V` 貼上，請確保你的輸入法狀態不是處於特殊模式。
-*   **權限錯誤？**
-    *   MacOS 需要授予 Python (或 Terminal) **輔助使用 (Accessibility)** 與 **System Events** 的權限，才能控制視窗與鍵盤。具體路徑：`系統設定 -> 隱私權與安全性 -> 輔助使用`。
-
-*   **支援平台？**
-    *   本專案目前僅支援 **macOS**，因為指令輸入依賴於 `osascript` 與 macOS 系統 Events。
+*   **無法輸入或發生錯誤？**
+    *   確保 Antigravity 是以 `remote-debugging-port=7800` 模式啟動。本程式的冷啟動腳本已經預設帶有此參數。
+*   **等很久沒收到回覆？**
+    *   系統設定會自動過濾掉 AI 的「思考中」文字區塊，必須等到 AI 給出最終回覆後才會一併送出，請耐心等候。
 
 ---
 *Created by Antigravity Agent*

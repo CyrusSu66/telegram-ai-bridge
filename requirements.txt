@@ -2,3 +2,5 @@ pyTelegramBotAPI
 pyautogui
 watchdog
 pyperclip
+websocket-client
+requests
