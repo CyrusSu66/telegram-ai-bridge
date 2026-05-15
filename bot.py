@@ -225,24 +225,46 @@ def poll_response_cdp(chat_id, ws_url, previous_last_text):
         
         script = """
         (function() {
+            let isGenerating = false;
+            let buttons = document.querySelectorAll('button, a, [role="button"]');
+            for(let b of buttons) {
+                let t = (b.title || b.getAttribute('aria-label') || b.innerText || '').toLowerCase();
+                if(t === 'cancel' || t === 'stop' || t === 'stop generation') {
+                    isGenerating = true;
+                    break;
+                }
+            }
+            
+            let text = "";
             let blocks = Array.from(document.querySelectorAll('.rendered-markdown, .markdown-body, .prose, .leading-relaxed.select-text'))
                               .filter(b => b.innerText.trim().length > 0 && !(b.className && typeof b.className === 'string' && b.className.includes('opacity-70')));
             if (blocks.length > 0) {
-                return blocks[blocks.length - 1].innerText;
+                text = blocks[blocks.length - 1].innerText;
             }
-            return "";
+            
+            return {isGenerating: isGenerating, text: text};
         })();
         """
         
-        for i in range(30): 
+        for i in range(120): 
             ws.send(json.dumps({
                 "id": 100+i,
                 "method": "Runtime.evaluate",
                 "params": {"expression": script, "returnByValue": True}
             }))
             resp = json.loads(ws.recv())
-            current_text = resp.get("result", {}).get("result", {}).get("value", "")
+            val = resp.get("result", {}).get("result", {}).get("value", {})
+            if not isinstance(val, dict):
+                val = {}
+                
+            is_generating = val.get("isGenerating", False)
+            current_text = val.get("text", "")
             
+            if is_generating:
+                same_count = 0
+                time.sleep(2)
+                continue
+                
             if current_text == previous_last_text:
                 time.sleep(2)
                 continue
@@ -251,6 +273,7 @@ def poll_response_cdp(chat_id, ws_url, previous_last_text):
                 same_count += 1
             elif current_text:
                 last_text = current_text
+                same_count = 0
                 same_count = 0
                 
             if same_count >= 3: 
