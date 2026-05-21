@@ -181,42 +181,32 @@ def type_message_to_agent_cdp(message_text, chat_id, was_just_started=False):
         }))
         ws.recv()
         
-        # 3. Press Enter (add proper key definitions for React/Electron)
+        # 3. Click send button using JS
+        click_send_script = """
+        (function() {
+            let btns = document.querySelectorAll('button, div[role="button"], span');
+            for (let b of btns) {
+                let text = (b.innerText || b.getAttribute('aria-label') || b.title || "").trim().toLowerCase();
+                if (text === 'send message') {
+                    b.click();
+                    return true;
+                }
+            }
+            let primaryButtons = document.querySelectorAll('.bg-primary');
+            for (let pb of primaryButtons) {
+                let cls = pb.className || "";
+                if (pb.tagName === 'BUTTON' || pb.getAttribute('role') === 'button' || cls.includes('cursor-pointer')) {
+                    pb.click();
+                    return true;
+                }
+            }
+            return false;
+        })();
+        """
         ws.send(json.dumps({
             "id": 3,
-            "method": "Input.dispatchKeyEvent",
-            "params": {
-                "type": "rawKeyDown",
-                "windowsVirtualKeyCode": 13,
-                "key": "Enter",
-                "code": "Enter"
-            }
-        }))
-        ws.recv()
-        
-        ws.send(json.dumps({
-            "id": 4,
-            "method": "Input.dispatchKeyEvent",
-            "params": {
-                "type": "char",
-                "windowsVirtualKeyCode": 13,
-                "key": "Enter",
-                "code": "Enter",
-                "unmodifiedText": "\r",
-                "text": "\r"
-            }
-        }))
-        ws.recv()
-        
-        ws.send(json.dumps({
-            "id": 5,
-            "method": "Input.dispatchKeyEvent",
-            "params": {
-                "type": "keyUp",
-                "windowsVirtualKeyCode": 13,
-                "key": "Enter",
-                "code": "Enter"
-            }
+            "method": "Runtime.evaluate",
+            "params": {"expression": click_send_script, "returnByValue": True}
         }))
         ws.recv()
         
@@ -443,15 +433,56 @@ def switch_project(message):
         ws = websocket.create_connection(ws_url, suppress_origin=True)
         click_script = f"""
         (function() {{
-            let cards = document.querySelectorAll('[data-project-card="true"]');
-            for (let c of cards) {{
-                let name = (c.innerText || "").trim().split('\\n')[0];
-                if (name.toLowerCase() === {json.dumps(target_name.lower())}) {{
-                    c.click();
+            try {{
+                let targetProjName = {json.dumps(target_name.lower())};
+                let cards = document.querySelectorAll('[data-project-card="true"]');
+                let targetCard = null;
+                for (let c of cards) {{
+                    let name = (c.innerText || "").trim().split('\\n')[0];
+                    if (name.toLowerCase() === targetProjName) {{
+                        targetCard = c;
+                        break;
+                    }}
+                }}
+                if (!targetCard) return false;
+                
+                let all = Array.from(document.querySelectorAll('*'));
+                let cardIdx = all.indexOf(targetCard);
+                if (cardIdx === -1) return false;
+                
+                let targetChat = null;
+                for (let i = cardIdx + 1; i < all.length; i++) {{
+                    let el = all[i];
+                    let cls = (typeof el.className === 'string') ? el.className : (el.getAttribute('class') || "");
+                    if (el.getAttribute('data-project-card') === 'true') {{
+                        break;
+                    }}
+                    if (cls.includes('ml-[22px]') && cls.includes('cursor-pointer')) {{
+                        targetChat = el;
+                        break;
+                    }}
+                }}
+                
+                if (targetChat) {{
+                    targetChat.click();
+                    let events = ['mousedown', 'mouseup', 'click'];
+                    events.forEach(eventType => {{
+                        let ev = new MouseEvent(eventType, {{ bubbles: true, cancelable: true, view: window }});
+                        targetChat.dispatchEvent(ev);
+                    }});
+                    return true;
+                }} else {{
+                    targetCard.click();
+                    let events = ['mousedown', 'mouseup', 'click'];
+                    events.forEach(eventType => {{
+                        let ev = new MouseEvent(eventType, {{ bubbles: true, cancelable: true, view: window }});
+                        targetCard.dispatchEvent(ev);
+                    }});
                     return true;
                 }}
+            }} catch (err) {{
+                return false;
             }}
-            return false;
         }})();
         """
         ws.send(json.dumps({
