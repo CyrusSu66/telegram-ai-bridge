@@ -405,7 +405,7 @@ def list_projects(message):
     except Exception as e:
         bot.reply_to(message, f"❌ 無法取得專案清單：{e}")
 
-@bot.message_handler(commands=['switch'])
+@bot.message_handler(commands=['switch', 'swith'])
 def switch_project(message):
     global available_projects
     try:
