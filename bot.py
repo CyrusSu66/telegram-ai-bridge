@@ -33,6 +33,18 @@ available_targets = []
 current_chat_id = None
 CHAT_ID_FILE = "chat_id.txt"
 
+def get_debug_port():
+    try:
+        active_port_file = os.path.expanduser("~/Library/Application Support/Antigravity/DevToolsActivePort")
+        if os.path.exists(active_port_file):
+            with open(active_port_file, "r") as f:
+                lines = f.readlines()
+                if lines:
+                    return int(lines[0].strip())
+    except Exception as e:
+        print(f"Error reading active port: {e}")
+    return 7800 # fallback
+
 def load_chat_id():
     global current_chat_id
     try:
@@ -56,8 +68,9 @@ def save_chat_id(chat_id):
             pass
 
 def ensure_antigravity_running(chat_id=None):
+    port = get_debug_port()
     try:
-        r = requests.get('http://localhost:7800/json', timeout=2)
+        r = requests.get(f'http://localhost:{port}/json', timeout=2)
         if r.status_code == 200:
             return True, False
     except Exception:
@@ -69,12 +82,13 @@ def ensure_antigravity_running(chat_id=None):
         except:
             pass
     print("Antigravity debug port not reachable. Attempting to start...")
-    subprocess.Popen(["/Applications/Antigravity.app/Contents/MacOS/Electron", "--remote-debugging-port=7800", "--remote-allow-origins=*"], start_new_session=True)
+    subprocess.Popen(["/Applications/Antigravity.app/Contents/MacOS/Antigravity"], start_new_session=True)
     
     for i in range(10):
         time.sleep(2)
+        port = get_debug_port()
         try:
-            if requests.get('http://localhost:7800/json', timeout=2).status_code == 200:
+            if requests.get(f'http://localhost:{port}/json', timeout=2).status_code == 200:
                 print("Antigravity started successfully.")
                 time.sleep(2) # Give it a moment to load pages
                 return True, True
@@ -85,8 +99,9 @@ def ensure_antigravity_running(chat_id=None):
 
 def get_active_ws_url(chat_id=None, was_just_started=False):
     global active_ws_url, available_targets
+    port = get_debug_port()
     try:
-        r = requests.get('http://localhost:7800/json', timeout=2)
+        r = requests.get(f'http://localhost:{port}/json', timeout=2)
         targets = [t for t in r.json() if t.get('type') == 'page' and not t.get('url', '').startswith('devtools://')]
         available_targets = targets
         
@@ -114,7 +129,7 @@ def type_message_to_agent_cdp(message_text, chat_id, was_just_started=False):
         return False
         
     try:
-        ws = websocket.create_connection(ws_url)
+        ws = websocket.create_connection(ws_url, suppress_origin=True)
         
         # 0. Fetch the last block BEFORE we send the new message
         script_get_last = """
@@ -218,7 +233,7 @@ def poll_response_cdp(chat_id, ws_url, previous_last_text):
     print("Starting response polling...")
     try:
         time.sleep(2) 
-        ws = websocket.create_connection(ws_url)
+        ws = websocket.create_connection(ws_url, suppress_origin=True)
         
         last_text = ""
         same_count = 0
@@ -352,7 +367,8 @@ def send_welcome(message):
 @bot.message_handler(commands=['list'])
 def list_windows(message):
     try:
-        r = requests.get('http://localhost:7800/json', timeout=2)
+        port = get_debug_port()
+        r = requests.get(f'http://localhost:{port}/json', timeout=2)
         targets = [t for t in r.json() if t.get('type') == 'page' and not t.get('url', '').startswith('devtools://')]
         global available_targets
         available_targets = targets
