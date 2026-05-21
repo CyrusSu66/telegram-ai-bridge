@@ -449,8 +449,8 @@ def switch_project(message):
                 if (name.toLowerCase() === {json.dumps(target_name.lower())}) {{
                     c.click();
                     return true;
-                }
-            }
+                }}
+            }}
             return false;
         }})();
         """
