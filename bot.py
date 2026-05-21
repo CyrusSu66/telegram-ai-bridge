@@ -360,46 +360,115 @@ class NotificationHandler(FileSystemEventHandler):
         except Exception as e:
             print(f"[Notification] Error: {e}")
 
+available_projects = []
+
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    bot.reply_to(message, "👋 嗨！我是 Antigravity Bridge Bot。\n傳送任何訊息給我，我會轉交給電腦前的 Agent。\n可使用 /list 查詢視窗，/switch <id> 切換視窗。")
+    bot.reply_to(message, "👋 嗨！我是 Antigravity Bridge Bot。\n傳送任何訊息給我，我會轉交給電腦前的 Agent。\n可使用 /list 查詢專案項目，/switch <id或名稱> 切換專案。")
 
 @bot.message_handler(commands=['list'])
-def list_windows(message):
+def list_projects(message):
+    global available_projects
     try:
-        port = get_debug_port()
-        r = requests.get(f'http://localhost:{port}/json', timeout=2)
-        targets = [t for t in r.json() if t.get('type') == 'page' and not t.get('url', '').startswith('devtools://')]
-        global available_targets
-        available_targets = targets
-        
-        if not targets:
-            bot.reply_to(message, "沒有找到可用的視窗。")
+        ws_url = get_active_ws_url()
+        if not ws_url:
+            bot.reply_to(message, "❌ 未能取得 Antigravity 主網頁目標，請確認 App 是否已開啟。")
             return
             
-        reply = "🖥 **可用視窗清單**：\n"
-        for i, t in enumerate(targets):
-            title = t.get('title', 'Unknown')
-            reply += f"[{i}] {title}\n"
+        ws = websocket.create_connection(ws_url, suppress_origin=True)
+        get_projects_script = """
+        (function() {
+            let projects = [];
+            let divs = document.querySelectorAll('div.cursor-pointer');
+            divs.forEach(d => {
+                let cls = d.className || "";
+                if (cls.includes('pl-1 pr-0.5 h-8 shrink-0') && cls.includes('select-none')) {
+                    let text = (d.innerText || "").trim().split('\\n')[0];
+                    if (text && text.length < 40 && !projects.includes(text)) {
+                        projects.push(text);
+                    }
+                }
+            });
+            return projects;
+        })();
+        """
+        ws.send(json.dumps({
+            "id": 88,
+            "method": "Runtime.evaluate",
+            "params": {"expression": get_projects_script, "returnByValue": True}
+        }))
+        res = json.loads(ws.recv())
+        ws.close()
+        
+        projects = res.get("result", {}).get("result", {}).get("value", [])
+        available_projects = projects
+        
+        if not projects:
+            bot.reply_to(message, "📂 在側邊欄中沒有找到任何 Project 項目。")
+            return
+            
+        reply = "📁 **可用專案清單 (Projects)**：\n"
+        for i, p in enumerate(projects):
+            reply += f"[{i}] {p}\n"
+        reply += "\n💡 可使用 `/switch <編號或名稱>` 切換至該專案。"
         bot.reply_to(message, reply)
     except Exception as e:
-        bot.reply_to(message, f"❌ 無法取得視窗清單：{e}")
+        bot.reply_to(message, f"❌ 無法取得專案清單：{e}")
 
 @bot.message_handler(commands=['switch'])
-def switch_window(message):
-    global active_ws_url, available_targets
+def switch_project(message):
+    global available_projects
     try:
         parts = message.text.split()
         if len(parts) < 2:
-            bot.reply_to(message, "請提供視窗編號，例如：/switch 0")
+            bot.reply_to(message, "請提供專案編號或名稱，例如：\n`/switch 0` 或 `/switch VPL`")
             return
             
-        idx = int(parts[1])
-        target = available_targets[idx]
-        active_ws_url = target.get('webSocketDebuggerUrl')
-        bot.reply_to(message, f"✅ 已切換至視窗：{target.get('title')}")
+        arg = parts[1]
+        target_name = ""
+        if arg.isdigit():
+            idx = int(arg)
+            if idx < 0 or idx >= len(available_projects):
+                bot.reply_to(message, f"❌ 數字超出範圍，請先執行 /list 取得正確的清單。")
+                return
+            target_name = available_projects[idx]
+        else:
+            target_name = arg
+            
+        ws_url = get_active_ws_url()
+        if not ws_url:
+            bot.reply_to(message, "❌ 未能取得 Antigravity 主網頁目標。")
+            return
+            
+        ws = websocket.create_connection(ws_url, suppress_origin=True)
+        click_script = f"""
+        (function() {{
+            let cards = document.querySelectorAll('[data-project-card="true"]');
+            for (let c of cards) {{
+                let name = (c.innerText || "").trim().split('\\n')[0];
+                if (name.toLowerCase() === {json.dumps(target_name.lower())}) {{
+                    c.click();
+                    return true;
+                }
+            }
+            return false;
+        }})();
+        """
+        ws.send(json.dumps({
+            "id": 89,
+            "method": "Runtime.evaluate",
+            "params": {"expression": click_script, "returnByValue": True}
+        }))
+        res = json.loads(ws.recv())
+        ws.close()
+        
+        success = res.get("result", {}).get("result", {}).get("value", False)
+        if success:
+            bot.reply_to(message, f"✅ 已成功切換至專案：**{target_name}**")
+        else:
+            bot.reply_to(message, f"❌ 切換失敗，在側邊欄找不到專案：**{target_name}**。請確認名稱是否正確。")
     except Exception as e:
-        bot.reply_to(message, f"❌ 切換失敗。請先執行 /list，再輸入有效的數字（例如：/switch 0）")
+        bot.reply_to(message, f"❌ 執行切換時發生錯誤：{e}")
 
 @bot.message_handler(commands=['tasks'])
 def send_tasks(message):
