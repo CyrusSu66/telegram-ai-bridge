@@ -150,6 +150,27 @@ def type_message_to_agent_cdp(message_text, chat_id, was_just_started=False):
         resp = json.loads(ws.recv())
         previous_last_text = resp.get("result", {}).get("result", {}).get("value", "")
 
+        # 0.1 Fetch the current active chat name
+        script_active_chat = """
+        (function() {
+            let divs = document.querySelectorAll('div.cursor-pointer');
+            for (let d of divs) {
+                let cls = (typeof d.className === 'string') ? d.className : (d.getAttribute('class') || "");
+                if (cls.includes('select-none') && (cls.includes('bg-secondary') || cls.includes('bg-muted') || cls.includes('bg-sidebar-secondary'))) {
+                    return (d.innerText || "").trim().split('\\n')[0];
+                }
+            }
+            return "";
+        })();
+        """
+        ws.send(json.dumps({
+            "id": 98,
+            "method": "Runtime.evaluate",
+            "params": {"expression": script_active_chat, "returnByValue": True}
+        }))
+        resp_ac = json.loads(ws.recv())
+        active_chat_name = resp_ac.get("result", {}).get("result", {}).get("value", "")
+
         # 1. Focus input box
         script = """
         (function() {
@@ -213,14 +234,14 @@ def type_message_to_agent_cdp(message_text, chat_id, was_just_started=False):
         ws.close()
         
         # Start response polling thread
-        threading.Thread(target=poll_response_cdp, args=(chat_id, ws_url, previous_last_text)).start()
+        threading.Thread(target=poll_response_cdp, args=(chat_id, ws_url, previous_last_text, active_chat_name)).start()
         return True
     except Exception as e:
         print(f"CDP Error: {e}")
         return False
 
-def poll_response_cdp(chat_id, ws_url, previous_last_text):
-    print("Starting response polling...")
+def poll_response_cdp(chat_id, ws_url, previous_last_text, original_chat_name):
+    print(f"Starting response polling for [{original_chat_name}]...")
     try:
         time.sleep(2) 
         ws = websocket.create_connection(ws_url, suppress_origin=True)
@@ -230,6 +251,16 @@ def poll_response_cdp(chat_id, ws_url, previous_last_text):
         
         script = """
         (function() {
+            let currentChat = "";
+            let divs = document.querySelectorAll('div.cursor-pointer');
+            for (let d of divs) {
+                let cls = (typeof d.className === 'string') ? d.className : (d.getAttribute('class') || "");
+                if (cls.includes('select-none') && (cls.includes('bg-secondary') || cls.includes('bg-muted') || cls.includes('bg-sidebar-secondary'))) {
+                    currentChat = (d.innerText || "").trim().split('\\n')[0];
+                    break;
+                }
+            }
+
             let isGenerating = false;
             let buttons = document.querySelectorAll('button, a, [role="button"]');
             for(let b of buttons) {
@@ -247,7 +278,7 @@ def poll_response_cdp(chat_id, ws_url, previous_last_text):
                 text = blocks[blocks.length - 1].innerText;
             }
             
-            return {isGenerating: isGenerating, text: text};
+            return {isGenerating: isGenerating, text: text, currentChat: currentChat};
         })();
         """
         
@@ -264,7 +295,14 @@ def poll_response_cdp(chat_id, ws_url, previous_last_text):
                 
             is_generating = val.get("isGenerating", False)
             current_text = val.get("text", "")
+            current_chat = val.get("currentChat", "")
             
+            # 若發現當前對話已被使用者切換，則安全終止此執行緒並提示
+            if original_chat_name and current_chat and current_chat != original_chat_name:
+                print(f"Detected project switch from {original_chat_name} to {current_chat}. Stopping poll.")
+                bot.send_message(chat_id, f"⚠️ 偵測到您已切換專案，**[{original_chat_name}]** 的背景回應將不再繼續追蹤，請手動至該專案查看。")
+                break
+                
             if is_generating:
                 same_count = 0
                 time.sleep(2)
@@ -279,7 +317,6 @@ def poll_response_cdp(chat_id, ws_url, previous_last_text):
             elif current_text:
                 last_text = current_text
                 same_count = 0
-                same_count = 0
                 
             if same_count >= 3: 
                 break
@@ -288,9 +325,10 @@ def poll_response_cdp(chat_id, ws_url, previous_last_text):
             
         ws.close()
         
-        if last_text:
+        # 只有在沒有因為切換專案而 break 退出，且有抓到最新回覆時才推播
+        if same_count >= 3 and last_text:
             bot.send_message(chat_id, f"🤖 Agent 回應：\n\n{last_text}")
-        else:
+        elif same_count < 3 and not (original_chat_name and current_chat and current_chat != original_chat_name):
             bot.send_message(chat_id, "⚠️ 無法讀取回覆，可能需要更新 UI 定位路徑。")
             
     except Exception as e:
