@@ -432,7 +432,7 @@ def switch_project(message):
             
         ws = websocket.create_connection(ws_url, suppress_origin=True)
         click_script = f"""
-        (function() {{
+        (async function() {{
             try {{
                 let targetProjName = {json.dumps(target_name.lower())};
                 let cards = document.querySelectorAll('[data-project-card="true"]');
@@ -444,23 +444,39 @@ def switch_project(message):
                         break;
                     }}
                 }}
-                if (!targetCard) return false;
+                if (!targetCard) return {{ success: false, reason: "找不到專案卡片" }};
                 
-                let all = Array.from(document.querySelectorAll('*'));
-                let cardIdx = all.indexOf(targetCard);
-                if (cardIdx === -1) return false;
+                function findChatSubitem(card) {{
+                    let all = Array.from(document.querySelectorAll('*'));
+                    let cardIdx = all.indexOf(card);
+                    if (cardIdx === -1) return null;
+                    for (let i = cardIdx + 1; i < all.length; i++) {{
+                        let el = all[i];
+                        if (el.getAttribute('data-project-card') === 'true') {{
+                            break;
+                        }}
+                        let cls = (typeof el.className === 'string') ? el.className : (el.getAttribute('class') || "");
+                        if (cls.includes('ml-[22px]') && cls.includes('cursor-pointer')) {{
+                            return el;
+                        }}
+                    }}
+                    return null;
+                }}
                 
-                let targetChat = null;
-                for (let i = cardIdx + 1; i < all.length; i++) {{
-                    let el = all[i];
-                    let cls = (typeof el.className === 'string') ? el.className : (el.getAttribute('class') || "");
-                    if (el.getAttribute('data-project-card') === 'true') {{
-                        break;
-                    }}
-                    if (cls.includes('ml-[22px]') && cls.includes('cursor-pointer')) {{
-                        targetChat = el;
-                        break;
-                    }}
+                let targetChat = findChatSubitem(targetCard);
+                
+                // 若找不到子對話，可能是被摺疊了，先點擊專案卡片將其展開
+                if (!targetChat) {{
+                    targetCard.click();
+                    let events = ['mousedown', 'mouseup', 'click'];
+                    events.forEach(eventType => {{
+                        let ev = new MouseEvent(eventType, {{ bubbles: true, cancelable: true, view: window }});
+                        targetCard.dispatchEvent(ev);
+                    }});
+                    
+                    // 等待 300ms 展開動畫與渲染
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    targetChat = findChatSubitem(targetCard);
                 }}
                 
                 if (targetChat) {{
@@ -470,34 +486,61 @@ def switch_project(message):
                         let ev = new MouseEvent(eventType, {{ bubbles: true, cancelable: true, view: window }});
                         targetChat.dispatchEvent(ev);
                     }});
-                    return true;
+                    
+                    // 驗證是否成功獲得選取焦點 (bg-sidebar-secondary 等樣式)
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                    let cls = (typeof targetChat.className === 'string') ? targetChat.className : (targetChat.getAttribute('class') || "");
+                    let verified = cls.includes('bg-secondary') || cls.includes('bg-muted') || cls.includes('bg-sidebar-secondary');
+                    
+                    return {{
+                        success: true,
+                        type: "chat",
+                        name: (targetChat.innerText || "").trim().split('\\n')[0],
+                        verified: verified
+                    }};
                 }} else {{
+                    // 若真的沒有子對話項目，則點擊卡片本身作為備用方案
                     targetCard.click();
                     let events = ['mousedown', 'mouseup', 'click'];
                     events.forEach(eventType => {{
                         let ev = new MouseEvent(eventType, {{ bubbles: true, cancelable: true, view: window }});
                         targetCard.dispatchEvent(ev);
                     }});
-                    return true;
+                    return {{
+                        success: true,
+                        type: "card",
+                        name: (targetCard.innerText || "").trim().split('\\n')[0],
+                        verified: false
+                    }};
                 }}
             }} catch (err) {{
-                return false;
+                return {{ success: false, reason: err.message }};
             }}
         }})();
         """
         ws.send(json.dumps({
             "id": 89,
             "method": "Runtime.evaluate",
-            "params": {"expression": click_script, "returnByValue": True}
+            "params": {"expression": click_script, "returnByValue": True, "awaitPromise": True}
         }))
         res = json.loads(ws.recv())
         ws.close()
         
-        success = res.get("result", {}).get("result", {}).get("value", False)
+        result_val = res.get("result", {}).get("result", {}).get("value", {})
+        if not isinstance(result_val, dict):
+            result_val = {}
+            
+        success = result_val.get("success", False)
         if success:
-            bot.reply_to(message, f"✅ 已成功切換至專案：**{target_name}**")
+            proj_type = result_val.get("type", "chat")
+            chat_name = result_val.get("name", target_name)
+            if proj_type == "chat":
+                bot.reply_to(message, f"✅ 已成功切換至專案對話：**{chat_name}** (專案: {target_name})")
+            else:
+                bot.reply_to(message, f"⚠️ 已點擊專案：**{target_name}**，但未找到任何子對話項目。")
         else:
-            bot.reply_to(message, f"❌ 切換失敗，在側邊欄找不到專案：**{target_name}**。請確認名稱是否正確。")
+            reason = result_val.get("reason", "未知原因")
+            bot.reply_to(message, f"❌ 切換失敗：{reason}。請確認名稱是否正確。")
     except Exception as e:
         bot.reply_to(message, f"❌ 執行切換時發生錯誤：{e}")
 
