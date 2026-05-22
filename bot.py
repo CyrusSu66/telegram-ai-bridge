@@ -134,8 +134,22 @@ def type_message_to_agent_cdp(message_text, chat_id, was_just_started=False):
         # 0. Fetch the last block BEFORE we send the new message
         script_get_last = """
         (function() {
-            let blocks = Array.from(document.querySelectorAll('.rendered-markdown, .markdown-body, .prose, .leading-relaxed.select-text'))
-                              .filter(b => b.innerText.trim().length > 0 && !(b.className && typeof b.className === 'string' && b.className.includes('opacity-70')));
+            let container = document.querySelector('.gap-y-3, [class*="gap-y-3"]');
+            let scope = container ? container : document;
+            let blocks = Array.from(scope.querySelectorAll('.rendered-markdown, .markdown-body, .prose, .leading-relaxed.select-text'))
+                              .filter(b => {
+                                  if (b.innerText.trim().length === 0) return false;
+                                  if (b.className && typeof b.className === 'string' && b.className.includes('opacity-70')) return false;
+                                  let parent = b.parentElement;
+                                  while (parent) {
+                                      let pCls = (typeof parent.className === 'string') ? parent.className : (parent.getAttribute('class') || "");
+                                      if (pCls.includes('pane') || pCls.includes('editor') || pCls.includes('preview')) {
+                                          return false;
+                                      }
+                                      parent = parent.parentElement;
+                                  }
+                                  return true;
+                              });
             if (blocks.length > 0) {
                 return blocks[blocks.length - 1].innerText;
             }
@@ -272,8 +286,22 @@ def poll_response_cdp(chat_id, ws_url, previous_last_text, original_chat_name):
             }
             
             let text = "";
-            let blocks = Array.from(document.querySelectorAll('.rendered-markdown, .markdown-body, .prose, .leading-relaxed.select-text'))
-                              .filter(b => b.innerText.trim().length > 0 && !(b.className && typeof b.className === 'string' && b.className.includes('opacity-70')));
+            let container = document.querySelector('.gap-y-3, [class*="gap-y-3"]');
+            let scope = container ? container : document;
+            let blocks = Array.from(scope.querySelectorAll('.rendered-markdown, .markdown-body, .prose, .leading-relaxed.select-text'))
+                              .filter(b => {
+                                  if (b.innerText.trim().length === 0) return false;
+                                  if (b.className && typeof b.className === 'string' && b.className.includes('opacity-70')) return false;
+                                  let parent = b.parentElement;
+                                  while (parent) {
+                                      let pCls = (typeof parent.className === 'string') ? parent.className : (parent.getAttribute('class') || "");
+                                      if (pCls.includes('pane') || pCls.includes('editor') || pCls.includes('preview')) {
+                                          return false;
+                                      }
+                                      parent = parent.parentElement;
+                                  }
+                                  return true;
+                              });
             if (blocks.length > 0) {
                 text = blocks[blocks.length - 1].innerText;
             }
